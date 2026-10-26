@@ -526,11 +526,11 @@ func (app *App) newKeysCommand() *cobra.Command {
 	imp := &cobra.Command{
 		Use:   "import [keys.json]",
 		Short: "Store an account's database keys in the vault",
-		Long: `WeChat 4 encrypts each database with a key. chatvault does not get the keys
-itself: you prepare a keys.json (the README says how), and this command
-checks it, tries it on the account's databases (reading only), and copies
-it into the vault (mode 0600). Keys stay valid until WeChat is reinstalled
-or the account logs in afresh; import new ones then.
+		Long: `WeChat 4 encrypts each database with a key. This command takes a
+keys.json you prepared, checks it, tries it on the account's databases
+(reading only), and copies it into the vault (mode 0600). Keys stay valid
+until WeChat is reinstalled or the account logs in afresh; import new ones
+then.
 
 Without a path it looks for keys.json in the current directory, then in
 ~/Downloads, ~/Desktop, ~/Documents and ~.
@@ -586,7 +586,7 @@ Accepted forms: ` + wechat.KeyForms + `.`,
 		},
 	}
 	imp.Flags().StringVar(&account, "account", "", "WeChat account directory or username")
-	cmd.AddCommand(imp)
+	cmd.AddCommand(app.newKeysExtractCommand(), imp)
 	return cmd
 }
 
@@ -647,7 +647,7 @@ func (app *App) newCheckCommand() *cobra.Command {
 func (app *App) checkKeys(say func(bool, string, string, ...any), v *vault.Vault, a wechat.Account) {
 	keys, err := wechat.LoadKeys(pipeline.KeysPath(v, a))
 	if errors.Is(err, os.ErrNotExist) {
-		say(false, "prepare a keys.json (README: 取 key) and run `chatvault keys import keys.json`", "keys for %s: not imported", a.ID())
+		say(false, "prepare a keys.json and run `chatvault keys import keys.json`", "keys for %s: not imported", a.ID())
 		return
 	}
 	if err != nil {

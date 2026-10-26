@@ -72,7 +72,7 @@ func (s setup) hint() string {
 	case stepWeChat:
 		return fmt.Sprintf("%v; then run `chatvault check`", s.why)
 	case stepKeys:
-		return "import the database keys: `chatvault keys import keys.json` (the README's 取 key section says how to get them), then `chatvault sync`"
+		return "import the database keys: `chatvault keys import keys.json`, then `chatvault sync`"
 	case stepSync:
 		return "keys are in; run `chatvault sync` to copy, decrypt and export your messages"
 	}

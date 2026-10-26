@@ -40,9 +40,8 @@ cask "chatvault" do
   caveats <<~EOS
     chatvault is Apache-2.0 licensed.
 
-    It reads the macOS WeChat 4 client's databases, which needs their keys
-    once: see https://github.com/soundadam/chatvault#取-key. The vault, with
-    decrypted copies of those databases, is ~/Documents/ChatVault; uninstalling
-    leaves it in place.
+    It reads the macOS WeChat 4 client's databases, which need their keys
+    imported once: see the README. The vault, with decrypted copies of those
+    databases, is ~/Documents/ChatVault; uninstalling leaves it in place.
   EOS
 end

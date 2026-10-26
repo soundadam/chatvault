@@ -72,7 +72,7 @@ piped, it prints the vault's status. The vault is ~/Documents/ChatVault unless
 		Example: `  # first time: see what is missing and what to do about it
   chatvault check
 
-  # once: hand over the database keys (see README for how to get them)
+  # once: hand over the database keys
   chatvault keys import keys.json
 
   # copy, decrypt, merge, parse and export what is new
