@@ -14,7 +14,7 @@ registry:
   homebrew: soundadam/tap/chatvault
   docs: https://github.com/soundadam/chatvault#readme
 release:
-  version: "0.1.0"
+  version: "0.2.0"
   license: Apache-2.0
 modules:
   - type: promo
@@ -29,7 +29,7 @@ modules:
   - type: snapshot
     title: Why chatvault
     body: WeChat's own backup moves a whole device and gives you nothing you can read. Most export tools dump everything once, and next month you start over. {title} works the other way round. The vault only grows, and the exports follow it. The first sync of 480,000 messages takes about 25 seconds; after that a sync usually takes about a second and rewrites only the months that gained messages.
-    note: "Before the first sync, import the databases' keys with `chatvault keys import keys.json`. {title} does not extract them; the README names the tool that does, and `chatvault check` says what is still missing. WeChat 4.x for Mac only. The decrypted copies stay in the vault folder on your Mac, so keep that folder out of cloud drives and repositories."
+    note: "Before the first sync, import the databases' keys with `chatvault keys import keys.json`. `chatvault check` says what is still missing. WeChat 4.x for Mac only. The decrypted copies stay in the vault folder on your Mac, so keep that folder out of cloud drives and repositories."
     metrics:
       - value: "~1 s"
         label: A sync with nothing new
