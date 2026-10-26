@@ -64,6 +64,9 @@ func Accounts(root string) ([]Account, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, noData(root)
 	}
+	if errors.Is(err, os.ErrPermission) {
+		return nil, fmt.Errorf("cannot read %s (%w); give the terminal Full Disk Access in System Settings → Privacy & Security", root, err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +138,7 @@ func accountIDs(as []Account) string {
 const KeyForms = `{"keys": ["<64 hex>", ...]} or {"message/message_0.db": {"enc_key": "<64 hex>"}, ...}`
 
 // LoadKeys reads the candidate keys from a keys file: either
-// {"keys": ["<hex>", ...]} or the output of wechat-key-macos,
+// {"keys": ["<hex>", ...]} or the per-database form
 // {"message/message_0.db": {"enc_key": "<hex>"}, ...}. Errors name the
 // entry at fault, never a key.
 func LoadKeys(path string) ([][]byte, error) {
@@ -187,4 +190,38 @@ func LoadKeys(path string) ([][]byte, error) {
 		return nil, fmt.Errorf("%s: no keys in it; expected %s", path, KeyForms)
 	}
 	return keys, nil
+}
+
+// SaveKeys writes keys in the simple form LoadKeys accepts, readable only by
+// the user. It keeps per-database details out: which key opens which database
+// is measured from the databases, not from the file.
+func SaveKeys(path string, keys [][]byte) error {
+	var f struct {
+		Keys []string `json:"keys"`
+	}
+	f.Keys = make([]string, len(keys))
+	for i, k := range keys {
+		f.Keys[i] = hex.EncodeToString(k)
+	}
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+// MergeKeys joins key lists, keeping the first occurrence of each key.
+func MergeKeys(lists ...[][]byte) [][]byte {
+	seen := map[string]bool{}
+	var out [][]byte
+	for _, list := range lists {
+		for _, k := range list {
+			if seen[string(k)] {
+				continue
+			}
+			seen[string(k)] = true
+			out = append(out, k)
+		}
+	}
+	return out
 }

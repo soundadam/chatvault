@@ -28,17 +28,17 @@ brew install --cask soundadam/tap/chatvault
 
 ```bash
 chatvault check                 # 看缺什么：微信账号、key、vault，每个 FAIL 下面都写了怎么办
-chatvault keys import keys.json # 导入 key（取法见下一节）；会先试一遍能打开几个数据库
+chatvault keys import keys.json # 导入你准备好的 keys.json；会先试一遍能打开几个数据库
 chatvault sync                  # 复制、解密、合并、导出
 ```
 
 不知道下一步做什么时，`chatvault check`、`chatvault status` 和交互界面的空白页都会给出下一条命令。
 
-## 取 key
+## 导入 key
 
-微信的数据库用 SQLCipher 加密，chatvault 需要它们的 key，但不负责从微信里取。可以用
-[wechat-key-macos](https://github.com/3351666087/wechat-key-macos)：它用 Frida hook CommonCrypto，
-要先按它的 README 让微信可调试。它输出的 `keys.json` 直接交给 chatvault：
+微信的数据库用 SQLCipher 加密，chatvault 从 `keys.json` 读取 key。文件格式是
+`{"keys": ["<64 位 hex>", ...]}`，也接受按数据库分组的
+`{"message/message_0.db": {"enc_key": "<64 位 hex>"}, ...}`：
 
 ```bash
 chatvault keys import keys.json
@@ -47,8 +47,7 @@ chatvault check          # 逐个数据库检查 key 能否打开
 
 不给路径时，`keys import` 依次在当前目录、`~/Downloads`、`~/Desktop`、`~/Documents`、`~` 找 `keys.json`。
 导入前会校验格式，并只读地试一遍账号的数据库：一个都打不开就不导入（多半是别的账号的 key，或已过期）。
-也可以手写 `{"keys": ["<64 位 hex>", ...]}`。key 跟着账号数据走，不跟微信版本走：
-重新登录后、或 `check` 报某个新分库打不开时，再取一次。
+key 跟着账号数据走，不跟微信版本走：重新登录后、或 `check` 报某个新分库打不开时，重新导入一次。
 
 ## 用法
 
