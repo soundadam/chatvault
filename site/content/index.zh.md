@@ -14,7 +14,7 @@ registry:
   homebrew: soundadam/tap/chatvault
   docs: https://github.com/soundadam/chatvault#readme
 release:
-  version: "0.2.0"
+  version: "0.3.0"
   license: Apache-2.0
 modules:
   - type: promo
