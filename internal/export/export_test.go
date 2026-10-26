@@ -2,6 +2,7 @@ package export
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -166,5 +167,55 @@ func TestVaultMoves(t *testing.T) {
 	}
 	if want := filepath.Join(v.Dir, "export", "md"); ts[0].Dir != want {
 		t.Fatalf("dir = %q, want %q", ts[0].Dir, want)
+	}
+}
+
+func TestFormats(t *testing.T) {
+	ctx := context.Background()
+	for _, f := range Formats {
+		t.Run(f, func(t *testing.T) {
+			dir := t.TempDir()
+			v, err := vault.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer v.Close()
+			src, err := v.EnsureSource(ctx, "wechat", "acct", "me")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Save(ctx, v, f, "", Config{Format: f}); err != nil {
+				t.Fatal(err)
+			}
+			sync(t, v, src, "bob",
+				vault.Message{ServerID: 1, LocalType: 1, Time: at("2026-10-01 10:00"), Sender: "bob", Content: []byte("hi\nthere")},
+				vault.Message{ServerID: 2, LocalType: 1, Time: at("2026-10-01 10:01"), Sender: "me", Content: []byte("hello")},
+			)
+			exportAll(t, v)
+			b, err := os.ReadFile(filepath.Join(dir, "export", f, "bob", "2026-10."+f))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(b)
+			switch f {
+			case "json":
+				var msgs []line
+				if err := json.Unmarshal(b, &msgs); err != nil || len(msgs) != 2 || msgs[0].Text != "hi\nthere" || !msgs[1].FromMe {
+					t.Fatalf("json = %v %+v\n%s", err, msgs, got)
+				}
+			case "jsonl":
+				if n := strings.Count(got, "\n"); n != 2 {
+					t.Fatalf("jsonl has %d lines:\n%s", n, got)
+				}
+			case "txt":
+				if !strings.Contains(got, "10:00 bob: hi\n  there\n") || !strings.Contains(got, "10:01 我: hello") || strings.ContainsAny(got, "#*") {
+					t.Fatalf("txt:\n%s", got)
+				}
+			case "md":
+				if !strings.Contains(got, "- 10:01 **我**: hello") {
+					t.Fatalf("md:\n%s", got)
+				}
+			}
+		})
 	}
 }

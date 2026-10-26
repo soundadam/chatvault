@@ -56,6 +56,7 @@ chatvault show 家人 --month 2026-10      # 在终端里看一个月
 
 chatvault export list
 chatvault export add groups --format md --kind group --dir ~/Documents/群聊
+chatvault export add plain --format txt  # 格式：md、txt（纯文本）、jsonl、json（每月一个数组）
 chatvault export                         # 只重写有变化的文件
 ```
 

@@ -19,8 +19,9 @@ import (
 	"github.com/soundadam/chatvault/internal/vault"
 )
 
-// Formats are the file formats a target can write.
-var Formats = []string{"jsonl", "md"}
+// Formats are the file formats a target can write: md and txt for people,
+// jsonl and json for tools.
+var Formats = []string{"md", "txt", "jsonl", "json"}
 
 // Config is a target's settings; changing any of them rebuilds the target.
 type Config struct {

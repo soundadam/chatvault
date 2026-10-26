@@ -212,14 +212,14 @@ func shardNum(rel string) int {
 	return n
 }
 
-// defaultTargets gives a new vault one export of each format, which the
-// user may change or remove.
+// defaultTargets gives a new vault one md and one jsonl export, which the
+// user may change or remove; txt and json are added with export add.
 func defaultTargets(ctx context.Context, v *vault.Vault) error {
 	ts, err := export.Targets(ctx, v)
 	if err != nil || len(ts) > 0 {
 		return err
 	}
-	for _, f := range export.Formats {
+	for _, f := range []string{"md", "jsonl"} {
 		if err := export.Save(ctx, v, f, "", export.Config{Format: f}); err != nil {
 			return err
 		}
