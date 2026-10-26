@@ -40,13 +40,22 @@ change.
 
 An export target is a row in `exports`: a format, a directory and a config
 (whether hidden chats are included, which chat kinds). Every file a target writes is recorded in
-`export_files`. An export run:
+`export_files`.
+
+A chat's files are at `<folder>/<username>/<YYYY-MM>.<format>`: the user's
+folder pref, if any, then the chat's username (`…@chatroom`, `wxid_…`), which
+never changes, so a renamed chat or contact keeps its path. The same username
+in two sources gets ` (<source id>)` added. `chats.json` in the target's
+directory maps each chat's name to its path.
+
+An export run:
 
 1. rebuilds everything when the target is new, its directory or config changed,
    or the parser version moved;
 2. otherwise rewrites every month of a chat whose prefs or contact changed
-   since `prefs_at`, and the months that gained messages or revisions since
-   `run_id`;
+   since `prefs_at`, or whose recorded files are not at its path now (so a
+   change of layout moves them), and the months that gained messages or
+   revisions since `run_id`;
 3. deletes files it no longer produces and empty folders.
 
 Files are written to a temporary name and renamed, so a reader never sees half

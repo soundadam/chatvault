@@ -48,10 +48,10 @@ modules:
   - type: section
     title: Organise once, the exports follow
     index: 2/3
-    lede: "`chatvault chat set 家人群 --folder family --alias Family` names a chat and files it in a folder; `--hide` keeps official accounts and the like out. On the next sync the exported files move with it and the old ones are removed. A second export, say group chats only in another folder, is one `chatvault export add`."
+    lede: "`chatvault chat set 家人群 --folder family --alias Family` names a chat and files it in a folder; `--hide` keeps official accounts and the like out. On the next sync the exported files move into the folder and the old ones are removed; each chat's directory is its WeChat ID, so a renamed group stays where it is. A second export, say group chats only in another folder, is one `chatvault export add`."
 
   - type: section
     title: Read your history in the terminal
     index: 3/3
-    lede: "Run `chatvault` on its own for the interactive screen: every chat by recent activity, `/` to filter, enter to read month by month, `a` for an alias, `f` for a folder, `h` to hide, `s` to sync in the background. For scripts, `sync`, `chats`, `show` and `export` each work on their own."
+    lede: "Run `chatvault` on its own for the interactive screen: every chat by recent activity, `/` to filter, enter to read (scrolling on from one month into the next), `o` to show the exported file in Finder, `a` for an alias, `f` for a folder, `h` to hide, `s` to sync in the background. For scripts, `sync`, `chats`, `show` and `export` each work on their own."
 ---

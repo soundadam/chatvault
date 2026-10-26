@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -14,6 +18,7 @@ import (
 	"github.com/soundadam/appkit/go/tuiv2"
 	"github.com/spf13/cobra"
 
+	"github.com/soundadam/chatvault/internal/export"
 	"github.com/soundadam/chatvault/internal/pipeline"
 	"github.com/soundadam/chatvault/internal/vault"
 )
@@ -80,8 +85,11 @@ type uiModel struct {
 	chat   *vault.Chat
 	months []vault.MonthCount
 	month  int
-	lines  []string
+	lines  []string // one per message or day heading
+	rows   []string // lines wrapped to rowsW cells; scroll counts these
+	rowsW  int
 	scroll int
+	files  []export.File // what the export targets wrote for the chat
 
 	// edit prompt
 	input   textinput.Model
@@ -105,7 +113,13 @@ type (
 		months []vault.MonthCount
 		month  int
 		lines  []string
+		files  []export.File
+		top    bool // show the start of the month, not the end
 		err    error
+	}
+	revealMsg struct {
+		path string
+		err  error
 	}
 	syncEventMsg struct {
 		e  pipeline.Event
@@ -167,8 +181,9 @@ func (m *uiModel) selected() *vault.Chat {
 
 func (m *uiModel) setStatus(s string, isErr bool) { m.status, m.statusErr = s, isErr }
 
-// loadMonth reads month i of chat c (i < 0: the latest) as display lines.
-func (m *uiModel) loadMonth(c vault.Chat, i int) tea.Cmd {
+// loadMonth reads month i of chat c (i < 0: the latest) as display lines,
+// to be shown from its start if top, else from its end.
+func (m *uiModel) loadMonth(c vault.Chat, i int, top bool) tea.Cmd {
 	v, ctx := m.v, m.ctx
 	return func() tea.Msg {
 		months, err := v.Months(ctx, c.SourceID, c.Chat)
@@ -186,6 +201,10 @@ func (m *uiModel) loadMonth(c vault.Chat, i int) tea.Cmd {
 		if err != nil {
 			return monthMsg{chat: c.Chat, err: err}
 		}
+		files, err := export.ChatFiles(ctx, v, c.SourceID, c.Chat)
+		if err != nil {
+			return monthMsg{chat: c.Chat, err: err}
+		}
 		from := months[i].Month
 		var lines []string
 		day := ""
@@ -197,8 +216,68 @@ func (m *uiModel) loadMonth(c vault.Chat, i int) tea.Cmd {
 			lines = append(lines, formatEntry(e, &c, names, src.Self)[6:])
 			return nil
 		})
-		return monthMsg{chat: c.Chat, months: months, month: i, lines: lines, err: err}
+		return monthMsg{chat: c.Chat, months: months, month: i, lines: lines, files: files, top: top, err: err}
 	}
+}
+
+// exportFile picks the file to point at for month (empty: the latest one):
+// the md target's if there is one, and names the other formats it is in.
+func exportFile(files []export.File, month string) (f export.File, others []string, ok bool) {
+	if month == "" {
+		for _, x := range files {
+			month = max(month, x.Month)
+		}
+	}
+	for _, x := range files {
+		if x.Month != month {
+			continue
+		}
+		if !ok || (x.Format == "md" && f.Format != "md") {
+			if ok {
+				others = append(others, f.Format)
+			}
+			f, ok = x, true
+			continue
+		}
+		others = append(others, x.Format)
+	}
+	return f, others, ok
+}
+
+// revealPath shows a file in the system's file browser; a variable so tests
+// do not open windows.
+var revealPath = func(p string) error {
+	if runtime.GOOS == "darwin" {
+		return exec.Command("open", "-R", p).Run()
+	}
+	return exec.Command("xdg-open", filepath.Dir(p)).Run()
+}
+
+// reveal shows c's export file for month (empty: the latest) in the file
+// browser.
+func (m *uiModel) reveal(c vault.Chat, month string) tea.Cmd {
+	v, ctx := m.v, m.ctx
+	return func() tea.Msg {
+		files, err := export.ChatFiles(ctx, v, c.SourceID, c.Chat)
+		if err != nil {
+			return revealMsg{err: err}
+		}
+		f, _, ok := exportFile(files, month)
+		if !ok {
+			return revealMsg{err: errors.New("no export file for " + c.Name() + " yet: press s to sync, which writes the exports")}
+		}
+		return revealMsg{path: f.Path, err: revealPath(f.Path)}
+	}
+}
+
+// tilde shortens a path under the home directory to ~/...
+func tilde(p string) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		if rel, err := filepath.Rel(home, p); err == nil && filepath.IsLocal(rel) {
+			return filepath.Join("~", rel)
+		}
+	}
+	return p
 }
 
 func (m *uiModel) startSync() tea.Cmd {
@@ -257,8 +336,21 @@ func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus(msg.err.Error(), true)
 			return m, cmd
 		}
-		m.months, m.month, m.lines = msg.months, msg.month, msg.lines
-		m.scroll = max(0, len(m.lines)-m.bodyRows())
+		m.months, m.month, m.lines, m.files, m.rows = msg.months, msg.month, msg.lines, msg.files, nil
+		m.scroll = 0
+		if !msg.top {
+			m.scroll = m.maxScroll()
+		}
+		return m, cmd
+	case revealMsg:
+		switch {
+		case msg.err != nil && msg.path != "":
+			m.setStatus("could not open "+tilde(msg.path)+": "+msg.err.Error(), true)
+		case msg.err != nil:
+			m.setStatus(msg.err.Error(), true)
+		default:
+			m.setStatus("shown: "+tilde(msg.path), false)
+		}
 		return m, cmd
 	case syncEventMsg:
 		e := msg.e
@@ -320,8 +412,12 @@ func (m *uiModel) updateList(msg tea.KeyPressMsg, cmd tea.Cmd) (tea.Model, tea.C
 	case "enter", "right", "l":
 		if c := m.selected(); c != nil {
 			cc := *c
-			m.chat, m.lines, m.months, m.mode = &cc, nil, nil, modeChat
-			return m, tea.Batch(cmd, m.loadMonth(cc, -1))
+			m.chat, m.lines, m.months, m.files, m.mode = &cc, nil, nil, nil, modeChat
+			return m, tea.Batch(cmd, m.loadMonth(cc, -1, false))
+		}
+	case "o":
+		if c := m.selected(); c != nil {
+			return m, tea.Batch(cmd, m.reveal(*c, ""))
 		}
 	case "s":
 		if !m.syncing {
@@ -406,29 +502,48 @@ func (m *uiModel) updateEdit(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m *uiModel) updateChat(msg tea.KeyPressMsg, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	rows := m.bodyRows()
-	maxScroll := max(0, len(m.lines)-rows)
+	maxScroll := m.maxScroll()
+	// Scrolling past either end of a month carries on into the next one.
+	back := func(by int) tea.Cmd {
+		if m.scroll == 0 && m.month > 0 && m.lines != nil {
+			return m.loadMonth(*m.chat, m.month-1, false)
+		}
+		m.scroll = max(0, m.scroll-by)
+		return nil
+	}
+	fwd := func(by int) tea.Cmd {
+		if m.scroll >= maxScroll && m.month < len(m.months)-1 && m.lines != nil {
+			return m.loadMonth(*m.chat, m.month+1, true)
+		}
+		m.scroll = min(maxScroll, m.scroll+by)
+		return nil
+	}
 	switch msg.String() {
 	case "q", "esc", "left", "backspace":
 		m.mode, m.chat = modeList, nil
 	case "up", "k":
-		m.scroll = max(0, m.scroll-1)
+		return m, tea.Batch(cmd, back(1))
 	case "down", "j":
-		m.scroll = min(maxScroll, m.scroll+1)
+		return m, tea.Batch(cmd, fwd(1))
 	case "pgup", "ctrl+b":
-		m.scroll = max(0, m.scroll-rows+1)
+		return m, tea.Batch(cmd, back(rows-1))
 	case "pgdown", "ctrl+f", "space":
-		m.scroll = min(maxScroll, m.scroll+rows-1)
+		return m, tea.Batch(cmd, fwd(rows-1))
 	case "home", "g":
 		m.scroll = 0
 	case "end", "G":
 		m.scroll = maxScroll
 	case "[", "p":
 		if m.month > 0 {
-			return m, tea.Batch(cmd, m.loadMonth(*m.chat, m.month-1))
+			return m, tea.Batch(cmd, m.loadMonth(*m.chat, m.month-1, false))
 		}
 	case "]", "n":
 		if m.month < len(m.months)-1 {
-			return m, tea.Batch(cmd, m.loadMonth(*m.chat, m.month+1))
+			return m, tea.Batch(cmd, m.loadMonth(*m.chat, m.month+1, true))
+		}
+	case "o":
+		if len(m.months) > 0 {
+			return m, tea.Batch(cmd, m.reveal(*m.chat, m.months[m.month].Month.Format("2006-01")))
 		}
 	}
 	return m, cmd
@@ -478,8 +593,52 @@ func (m *uiModel) listRows() int {
 	return max(1, m.height-3-len(m.footer("")))
 }
 
+// bodyRows are the chat view's message rows, below the title and the
+// export path.
 func (m *uiModel) bodyRows() int {
-	return max(1, m.height-2-len(m.footer("")))
+	return max(1, m.height-3-len(m.footer("")))
+}
+
+// chatRows are the month's lines wrapped to the screen width.
+func (m *uiModel) chatRows() []string {
+	w := max(20, m.width)
+	if m.rows == nil || m.rowsW != w {
+		m.rows, m.rowsW = m.rows[:0], w
+		for _, l := range m.lines {
+			m.rows = append(m.rows, wrapRows(l, w)...)
+		}
+	}
+	return m.rows
+}
+
+func (m *uiModel) maxScroll() int { return max(0, len(m.chatRows())-m.bodyRows()) }
+
+// wrapRows breaks a line into rows of at most w cells, continuing under the
+// text after the time, as in "15:04  who: text".
+func wrapRows(l string, w int) []string {
+	const indent = 7
+	n := ansi.StringWidth(l)
+	if n <= w {
+		return []string{l}
+	}
+	if w < indent+10 {
+		return []string{ansi.Truncate(l, w, "…")}
+	}
+	head, body := ansi.Cut(l, 0, indent), ansi.Cut(l, indent, n)
+	out := strings.Split(ansi.Wrap(body, w-indent, ""), "\n")
+	if ansi.StringWidth(out[0]) < (w-indent)/2 {
+		// A long run with no spaces, as Chinese text is, went whole onto
+		// the next row: break it where the row ends instead.
+		out = strings.Split(ansi.Hardwrap(body, w-indent, true), "\n")
+	}
+	for i := range out {
+		if i == 0 {
+			out[i] = head + out[i]
+		} else {
+			out[i] = strings.Repeat(" ", indent) + out[i]
+		}
+	}
+	return out
 }
 
 func (m *uiModel) viewList(b *strings.Builder) {
@@ -516,7 +675,7 @@ func (m *uiModel) viewList(b *strings.Builder) {
 	if m.cursor >= rows {
 		off = m.cursor - rows + 1
 	}
-	for i := off; i < len(m.shown) && i < off+rows; i++ {
+	for i, end := off, off+rows; i < len(m.shown) && i < end; i++ {
 		c := &m.chats[m.shown[i]]
 		name := c.Name()
 		if c.Folder != "" {
@@ -540,7 +699,7 @@ func (m *uiModel) viewList(b *strings.Builder) {
 	for ; rows > 0; rows-- {
 		b.WriteString("\n")
 	}
-	help := "↑↓ move · enter open · / filter · a alias · f folder · h hide · H hidden · s sync · q quit"
+	help := "↑↓ move · enter open · o show files · / filter · a alias · f folder · h hide · H hidden · s sync · q quit"
 	if m.mode == modeEdit {
 		help = "enter save · esc cancel · empty clears"
 	}
@@ -567,9 +726,12 @@ func (m *uiModel) viewChat(b *strings.Builder) {
 		head += fmt.Sprintf("  %s (%d) · month %d/%d", mc.Month.Format("2006-01"), mc.Count, m.month+1, len(m.months))
 	}
 	b.WriteString(styleTitle.Render(ansi.Truncate(head, w, "…")) + "\n")
+	b.WriteString(styleDim.Render(m.fileLine(w)) + "\n")
 	rows := m.bodyRows()
-	for i := m.scroll; i < len(m.lines) && i < m.scroll+rows; i++ {
-		b.WriteString(ansi.Truncate(m.lines[i], w, "…") + "\n")
+	all := m.chatRows()
+	m.scroll = min(m.scroll, m.maxScroll())
+	for i, end := m.scroll, m.scroll+rows; i < len(all) && i < end; i++ {
+		b.WriteString(ansi.Truncate(all[i], w, "…") + "\n")
 		rows--
 	}
 	if m.lines == nil {
@@ -579,7 +741,28 @@ func (m *uiModel) viewChat(b *strings.Builder) {
 	for ; rows > 0; rows-- {
 		b.WriteString("\n")
 	}
-	for _, l := range m.footer(ansi.Truncate("↑↓ scroll · [ ] month · esc back · q back", w, "…")) {
+	for _, l := range m.footer(ansi.Truncate("↑↓ scroll (on into the next month) · [ ] month · o show file · esc back", w, "…")) {
 		b.WriteString(l + "\n")
 	}
+}
+
+// fileLine says where the shown month is exported, keeping the end of the
+// path when it is too long for w.
+func (m *uiModel) fileLine(w int) string {
+	if len(m.months) == 0 {
+		return ""
+	}
+	f, others, ok := exportFile(m.files, m.months[m.month].Month.Format("2006-01"))
+	if !ok {
+		return ansi.Truncate("not exported yet: sync writes the exports", w, "…")
+	}
+	tail := ""
+	if len(others) > 0 {
+		tail = " (also " + strings.Join(others, ", ") + ")"
+	}
+	p := tilde(f.Path)
+	if over := ansi.StringWidth(p) + ansi.StringWidth(tail) - w; over > 0 {
+		p = ansi.TruncateLeft(p, over+1, "…")
+	}
+	return ansi.Truncate(p+tail, w, "…")
 }

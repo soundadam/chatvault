@@ -48,10 +48,10 @@ modules:
   - type: section
     title: 整理一次，导出一直跟着
     index: 2/3
-    lede: "`chatvault chat set 家人群 --folder family --alias 家人` 给聊天起别名、放进文件夹；`--hide` 把公众号之类的藏起来。下次同步时导出文件跟着搬家，旧文件自动删掉。要多一份只有群聊的导出放到别处，`chatvault export add` 一行就行。"
+    lede: "`chatvault chat set 家人群 --folder family --alias 家人` 给聊天起别名、放进文件夹；`--hide` 把公众号之类的藏起来。下次同步时导出文件跟着进文件夹，旧文件自动删掉；聊天的目录名是微信 ID，群改名也不会挪动。要多一份只有群聊的导出放到别处，`chatvault export add` 一行就行。"
 
   - type: section
     title: 在终端里翻聊天记录
     index: 3/3
-    lede: "直接运行 `chatvault` 打开交互界面：按最近活跃排列所有聊天，`/` 过滤，回车按月翻看，`a` 改别名，`f` 设文件夹，`h` 隐藏，`s` 在后台同步。要写脚本，`sync`、`chats`、`show`、`export` 这些子命令都能单独用。"
+    lede: "直接运行 `chatvault` 打开交互界面：按最近活跃排列所有聊天，`/` 过滤，回车翻看（滚到头接着上一个月），`o` 在 Finder 里显示导出文件，`a` 改别名，`f` 设文件夹，`h` 隐藏，`s` 在后台同步。要写脚本，`sync`、`chats`、`show`、`export` 这些子命令都能单独用。"
 ---

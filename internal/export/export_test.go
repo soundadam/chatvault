@@ -104,15 +104,32 @@ func TestIncrementalExport(t *testing.T) {
 		t.Fatalf("recalled message lost:\n%s", got)
 	}
 
+	// Renaming rewrites the files in place: the folder is the username.
+	alias := "Bobby"
+	if err := v.SetPref(ctx, src.ID, "bob", vault.Pref{Alias: &alias}); err != nil {
+		t.Fatal(err)
+	}
+	if r := exportAll(t, v); r.Written != 2 || r.Removed != 0 {
+		t.Fatalf("rename export = %+v", r)
+	}
+	if got := read("bob/2026-10.md"); !strings.HasPrefix(got, "# Bobby") {
+		t.Fatalf("renamed title:\n%s", got)
+	}
+
 	// Refiling moves the chat's files and removes the old ones.
-	alias, folder := "Bobby", "friends"
-	if err := v.SetPref(ctx, src.ID, "bob", vault.Pref{Alias: &alias, Folder: &folder}); err != nil {
+	folder := "friends"
+	if err := v.SetPref(ctx, src.ID, "bob", vault.Pref{Folder: &folder}); err != nil {
 		t.Fatal(err)
 	}
 	if r := exportAll(t, v); r.Written != 2 || r.Removed != 2 {
 		t.Fatalf("refile export = %+v", r)
 	}
-	read("friends/Bobby/2026-10.md")
+	read("friends/bob/2026-10.md")
+	files, err := ChatFiles(ctx, v, src.ID, "bob")
+	if err != nil || len(files) != 2 || files[1].Month != "2026-10" || files[1].Format != "md" ||
+		files[1].Path != filepath.Join(out, "friends", "bob", "2026-10.md") {
+		t.Fatalf("ChatFiles = %+v, %v", files, err)
+	}
 	if _, err := os.Stat(filepath.Join(out, "bob")); !os.IsNotExist(err) {
 		t.Fatalf("old folder still there: %v", err)
 	}
@@ -127,18 +144,61 @@ func TestIncrementalExport(t *testing.T) {
 	}
 }
 
-func TestChatPathsUnique(t *testing.T) {
+func TestChatPaths(t *testing.T) {
 	chats := []vault.Chat{
-		{SourceID: 1, Chat: "a", ContactName: "Sam"},
-		{SourceID: 1, Chat: "b", ContactName: "sam"},
-		{SourceID: 1, Chat: "c", ContactName: "a/b:c"},
+		{SourceID: 1, Chat: "1234@chatroom", ContactName: "Sam"},
+		{SourceID: 1, Chat: "wxid_b", ContactName: "Sam"},
+		{SourceID: 2, Chat: "1234@chatroom", ContactName: "Sam"},
+		{SourceID: 1, Chat: "c", Folder: "a/b:c/"},
 	}
 	p := chatPaths(chats)
-	if p[key(1, "a")] == p[key(1, "b")] {
-		t.Fatalf("clash: %v", p)
+	for k, want := range map[string]string{
+		key(1, "1234@chatroom"): "1234@chatroom (1)",
+		key(2, "1234@chatroom"): "1234@chatroom (2)",
+		key(1, "wxid_b"):        "wxid_b",
+		key(1, "c"):             filepath.Join("a", "b_c", "c"),
+	} {
+		if p[k] != want {
+			t.Fatalf("path = %q, want %q (all: %v)", p[k], want, p)
+		}
 	}
-	if got := p[key(1, "c")]; got != "a_b_c" {
-		t.Fatalf("clean = %q", got)
+}
+
+// Files from an older layout move to where they now belong on the next
+// export, without a full rebuild.
+func TestExportMovesOldLayout(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	v, err := vault.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	src, err := v.EnsureSource(ctx, "wechat", "acct", "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(ctx, v, "md", "", Config{Format: "md"}); err != nil {
+		t.Fatal(err)
+	}
+	sync(t, v, src, "123@chatroom",
+		vault.Message{ServerID: 1, LocalType: 1, Time: at("2026-10-01 10:00"), Sender: "bob", Content: []byte("bob:\nhi")})
+	exportAll(t, v)
+	out := filepath.Join(dir, "export", "md")
+	if err := os.Rename(filepath.Join(out, "123@chatroom"), filepath.Join(out, "Old name")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.DB.Exec("UPDATE export_files SET path = 'Old name/2026-10.md'"); err != nil {
+		t.Fatal(err)
+	}
+	if r := exportAll(t, v); r.Full || r.Written != 1 || r.Removed != 1 {
+		t.Fatalf("export = %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(out, "123@chatroom", "2026-10.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "Old name")); !os.IsNotExist(err) {
+		t.Fatalf("old folder still there: %v", err)
 	}
 }
 

@@ -82,9 +82,14 @@ chatvault export                         # 只重写有变化的文件
 ~/Documents/ChatVault/
   vault.sqlite                  # 唯一的真相
   sources/wechat/<账号>/        # 快照、解密副本、state.json、keys.json（0600）
-  export/md/<文件夹>/<聊天>/2026-10.md
+  export/md/<文件夹>/<聊天 ID>/2026-10.md
   export/jsonl/...              # 每个导出目标还有 chats.json 索引
 ```
+
+`<聊天 ID>` 是微信的用户名，如 `12345678901@chatroom`、`wxid_…`，永远不变：群改名、改别名都不会挪动文件，
+只改写文件标题。名字与目录的对应在 `chats.json`（也是 `chatvault chats` 最后一列）。只有 `<文件夹>`
+跟着你设的文件夹走。交互界面的聊天页第二行就是当月导出文件的路径，按 `o` 在 Finder 里显示它
+（列表里按 `o` 显示该聊天最新一个月的文件）。
 
 时间按本机时区写入导出文件。
 

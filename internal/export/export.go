@@ -158,15 +158,28 @@ func Run(ctx context.Context, v *vault.Vault, t Target, progress Progress) (Resu
 		return res, err
 	}
 	res.Full = t.RunID == 0 || t.Parser != parse.Version
-	if !res.Full && t.RunID >= lastRun && t.PrefsAt >= prefsAt {
-		return res, nil
-	}
 
 	chats, err := v.Chats(ctx)
 	if err != nil {
 		return res, err
 	}
 	paths := chatPaths(chats)
+	old, err := filesOf(ctx, v, t.Name)
+	if err != nil {
+		return res, err
+	}
+	// Chats whose files are not where they now belong, as after a change
+	// of how folders are named.
+	moved := map[string]bool{}
+	for rel, f := range old {
+		k := key(f.sourceID, f.chat)
+		if p, ok := paths[k]; ok && filepath.Dir(rel) != p {
+			moved[k] = true
+		}
+	}
+	if !res.Full && t.RunID >= lastRun && t.PrefsAt >= prefsAt && len(moved) == 0 {
+		return res, nil
+	}
 	byKey := map[string]*vault.Chat{}
 	for i := range chats {
 		byKey[key(chats[i].SourceID, chats[i].Chat)] = &chats[i]
@@ -178,14 +191,9 @@ func Run(ctx context.Context, v *vault.Vault, t Target, progress Progress) (Resu
 		return len(t.Config.Kinds) == 0 || slices.Contains(t.Config.Kinds, c.Kind)
 	}
 
-	old, err := filesOf(ctx, v, t.Name)
-	if err != nil {
-		return res, err
-	}
-
 	// What to write: everything on a full run; else the months with new or
-	// revised messages, and all months of chats whose name, folder or
-	// visibility may have moved their files.
+	// revised messages, and all months of chats whose folder, visibility or
+	// contacts changed, or whose files are not where they now belong.
 	var units []unit
 	dirtyChats := map[string]bool{} // chats whose stale files are to be found
 	if res.Full {
@@ -197,6 +205,9 @@ func Run(ctx context.Context, v *vault.Vault, t Target, progress Progress) (Resu
 		whole, err := changedChats(ctx, v, t)
 		if err != nil {
 			return res, err
+		}
+		for k := range moved {
+			whole[k] = true
 		}
 		months, err := changedMonths(ctx, v, t.RunID)
 		if err != nil {
@@ -303,6 +314,48 @@ func Run(ctx context.Context, v *vault.Vault, t Target, progress Progress) (Resu
 	return res, err
 }
 
+// File is one file a target wrote for a chat.
+type File struct {
+	Target string
+	Format string
+	Path   string // absolute
+	Month  string // YYYY-MM
+}
+
+// ChatFiles lists the files the targets last wrote for one chat, by target
+// then month, so a reader can find a chat on disk.
+func ChatFiles(ctx context.Context, v *vault.Vault, sourceID int64, chat string) ([]File, error) {
+	ts, err := Targets(ctx, v)
+	if err != nil {
+		return nil, err
+	}
+	byName := map[string]Target{}
+	for _, t := range ts {
+		byName[t.Name] = t
+	}
+	rows, err := v.DB.QueryContext(ctx, `SELECT export, path, month FROM export_files
+		WHERE source_id = ? AND chat = ? ORDER BY export, month`, sourceID, chat)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []File
+	for rows.Next() {
+		var f File
+		var rel string
+		if err := rows.Scan(&f.Target, &rel, &f.Month); err != nil {
+			return nil, err
+		}
+		t, ok := byName[f.Target]
+		if !ok {
+			continue
+		}
+		f.Format, f.Path = t.Config.Format, filepath.Join(t.Dir, rel)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 func key(sourceID int64, chat string) string { return fmt.Sprintf("%d\x00%s", sourceID, chat) }
 
 func filesOf(ctx context.Context, v *vault.Vault, name string) (map[string]fileRow, error) {
@@ -378,8 +431,10 @@ func changedMonths(ctx context.Context, v *vault.Vault, run int64) (map[string]m
 	return out, rows.Err()
 }
 
-// chatPaths gives each chat a directory, folder/name, unique among all
-// chats. Clashing names get the end of the username added.
+// chatPaths gives each chat a directory, folder/username, unique among all
+// chats. The username never changes, unlike the chat's name, so a chat's
+// files stay put when it is renamed; chats.json and each file's title give
+// the name. The same username in two sources gets the source ID added.
 func chatPaths(chats []vault.Chat) map[string]string {
 	sorted := make([]*vault.Chat, len(chats))
 	for i := range chats {
@@ -401,7 +456,7 @@ func chatPaths(chats []vault.Chat) map[string]string {
 		for i, c := range cs {
 			p := chatDir(c)
 			if i > 0 || len(cs) > 1 {
-				p += " (" + shortID(c.Chat) + ")"
+				p += fmt.Sprintf(" (%d)", c.SourceID)
 			}
 			out[key(c.SourceID, c.Chat)] = p
 		}
@@ -410,7 +465,7 @@ func chatPaths(chats []vault.Chat) map[string]string {
 }
 
 func chatDir(c *vault.Chat) string {
-	name := Clean(c.Name())
+	name := Clean(c.Chat)
 	if c.Folder == "" {
 		return name
 	}
@@ -421,14 +476,6 @@ func chatDir(c *vault.Chat) string {
 		}
 	}
 	return filepath.Join(append(parts, name)...)
-}
-
-func shortID(chat string) string {
-	chat = strings.TrimSuffix(strings.TrimSuffix(chat, "@chatroom"), "@openim")
-	if len(chat) > 8 {
-		chat = chat[len(chat)-8:]
-	}
-	return Clean(chat)
 }
 
 // Clean makes s safe as one path element.

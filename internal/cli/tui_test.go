@@ -2,15 +2,19 @@ package cli
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	appkit "github.com/soundadam/appkit/go"
 	"github.com/soundadam/appkit/go/tuiv2"
 
+	"github.com/soundadam/chatvault/internal/export"
 	"github.com/soundadam/chatvault/internal/vault"
 )
 
@@ -146,4 +150,116 @@ func drain(cmd tea.Cmd) []tea.Msg {
 		return []tea.Msg{msg}
 	}
 	return nil
+}
+
+func TestUIShowsExportFile(t *testing.T) {
+	m := testModel(t)
+	ctx := context.Background()
+	if err := export.Save(ctx, m.v, "md", "", export.Config{Format: "md"}); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := export.Targets(ctx, m.v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := export.Run(ctx, m.v, ts[0], nil); err != nil {
+		t.Fatal(err)
+	}
+	var revealed string
+	old := revealPath
+	revealPath = func(p string) error { revealed = p; return nil }
+	t.Cleanup(func() { revealPath = old })
+
+	want := filepath.Join(m.v.Dir, "export", "md", "alice", "2026-10.md")
+	_, cmd := m.Update(key("o"))
+	m.Update(cmd())
+	if revealed != want || !strings.Contains(view(m), "shown: ") {
+		t.Fatalf("o in the list revealed %q, want %q:\n%s", revealed, want, view(m))
+	}
+
+	_, cmd = m.Update(key("enter"))
+	for _, msg := range drain(cmd) {
+		m.Update(msg)
+	}
+	if got := view(m); !strings.Contains(got, filepath.Join("alice", "2026-10.md")) {
+		t.Fatalf("chat view has no export path:\n%s", got)
+	}
+	revealed = ""
+	_, cmd = m.Update(key("o"))
+	m.Update(cmd())
+	if revealed != want {
+		t.Fatalf("o in the chat revealed %q, want %q", revealed, want)
+	}
+}
+
+func TestUIChatFillsAndScrollsAcrossMonths(t *testing.T) {
+	m := testModel(t)
+	ctx := context.Background()
+	src, err := m.v.EnsureSource(ctx, "wechat", "acct", "me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := m.v.BeginRun(ctx, src, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msgs []vault.Message
+	sep := time.Date(2026, 9, 1, 9, 0, 0, 0, time.Local).Unix()
+	for i := range 40 {
+		msgs = append(msgs, vault.Message{ServerID: 1000 + int64(i), LocalType: 1, Time: sep + int64(i)*60, Sender: "alice",
+			Content: []byte(fmt.Sprintf("september %d", i))})
+	}
+	msgs = append(msgs, vault.Message{ServerID: 2000, LocalType: 1, Time: sep + 86400, Sender: "alice",
+		Content: []byte(strings.Repeat("长", 100))})
+	if err := run.Messages(ctx, "alice", msgs); err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Finish(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.v.Reparse(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(m.load()())
+	m.applyFilter()
+	for m.selected().Chat != "alice" {
+		m.Update(key("j"))
+	}
+	open := func(cmd tea.Cmd) {
+		for _, msg := range drain(cmd) {
+			m.Update(msg)
+		}
+	}
+	_, cmd := m.Update(key("enter"))
+	open(cmd)
+	if m.months[m.month].Month.Month() != time.October {
+		t.Fatalf("opened %v", m.months[m.month].Month)
+	}
+
+	// Up at the top of October goes on into the end of September.
+	_, cmd = m.Update(key("k"))
+	open(cmd)
+	if m.months[m.month].Month.Month() != time.September || m.scroll != m.maxScroll() {
+		t.Fatalf("after up: month %v scroll %d/%d", m.months[m.month].Month, m.scroll, m.maxScroll())
+	}
+	got := strings.Split(strings.TrimSuffix(view(m), "\n"), "\n")
+	body := got[2 : 2+m.bodyRows()]
+	for i, l := range body {
+		if strings.TrimSpace(ansi.Strip(l)) == "" && i > 0 && i < len(body)-1 && !strings.Contains(body[i+1], "──") {
+			t.Fatalf("blank row %d in a full month:\n%s", i, view(m))
+		}
+		if ansi.StringWidth(l) > 80 {
+			t.Fatalf("row %d wider than the screen: %q", i, l)
+		}
+	}
+	if !strings.Contains(view(m), "长长长") || strings.Contains(view(m), "长…") {
+		t.Fatalf("long message not wrapped:\n%s", view(m))
+	}
+
+	// Down at the end of September comes back to the start of October.
+	_, cmd = m.Update(key("j"))
+	open(cmd)
+	if m.months[m.month].Month.Month() != time.October || m.scroll != 0 {
+		t.Fatalf("after down: month %v scroll %d", m.months[m.month].Month, m.scroll)
+	}
 }
