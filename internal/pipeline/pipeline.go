@@ -63,7 +63,7 @@ func KeysPath(v *vault.Vault, acct wechat.Account) string {
 }
 
 // ErrNoKeys means keys have not been imported for the account.
-var ErrNoKeys = errors.New("no database keys yet; run `chatvault keys import <keys.json>`")
+var ErrNoKeys = errors.New("no database keys yet; import them with `chatvault keys import keys.json`")
 
 // Sync runs every stage.
 func Sync(ctx context.Context, v *vault.Vault, opt Options, progress func(Event)) (*Report, error) {
@@ -76,6 +76,9 @@ func Sync(ctx context.Context, v *vault.Vault, opt Options, progress func(Event)
 		return rep, err
 	}
 	rep.Account = acct.ID()
+	if err := acct.CheckLayout(); err != nil {
+		return rep, err
+	}
 	dir := v.SourceDir("wechat", acct.ID())
 	p := wechat.Paths{
 		Snapshot: filepath.Join(dir, "snapshot"),
@@ -85,7 +88,7 @@ func Sync(ctx context.Context, v *vault.Vault, opt Options, progress func(Event)
 	}
 	keys, err := wechat.LoadKeys(p.Keys)
 	if errors.Is(err, os.ErrNotExist) {
-		return rep, ErrNoKeys
+		return rep, fmt.Errorf("%s: %w", acct.ID(), ErrNoKeys)
 	}
 	if err != nil {
 		return rep, err
