@@ -1,0 +1,59 @@
+# chatvault
+
+把微信（macOS 版 WeChat 4）的聊天记录合并进一个只增不减的本地 SQLite 库（vault），
+再保持一组 Markdown / JSON Lines 导出目录与之同步：每个聊天每月一个文件，每次同步只重写变化的部分。
+
+- **快**：APFS clonefile 快照 + 按库签名跳过未变化的数据库；首次 48 万条约 25 秒，之后的增量同步约 1 秒。
+- **不丢**：消息只增不删。被撤回、被修改的消息，原文保留在 `messages`，新形态记入 `revisions`。
+- **可整理**：给聊天起别名、放进文件夹、隐藏；导出跟着移动，旧文件自动清理。
+- **数据结构可演进**：库结构按 `PRAGMA user_version` 编号迁移；解析结果是派生层，解析器升级后自动重建。详见 [docs/data-model.md](docs/data-model.md)。
+
+## 安装
+
+```bash
+make build        # 生成 bin/chatvault
+```
+
+之后 `chatvault update` 会通过 appkit 从 GitHub Release 自更新。
+
+## 用法
+
+```bash
+# 一次性：导入数据库密钥（wechat-key-macos 的输出，或 {"keys": ["<hex>", ...]}）
+chatvault keys import ~/WeChatArchive/keys.json
+
+# 复制、解密、合并、解析、导出
+chatvault sync
+
+# 交互界面：浏览、过滤、改别名/文件夹、隐藏、同步
+chatvault            # 在终端里直接运行即可，等同 chatvault ui
+```
+
+整理与导出：
+
+```bash
+chatvault chats 家                       # 列出聊天（编号可直接用于下面的命令）
+chatvault chat set 家人群 --folder family --alias 家人
+chatvault chat set 某公众号 --hide
+chatvault show 家人 --month 2026-10      # 在终端里看一个月
+
+chatvault export list
+chatvault export add groups --format md --kind group --dir ~/Documents/群聊
+chatvault export                         # 只重写有变化的文件
+```
+
+库默认在 `~/ChatVault`，可用 `--vault` 或 `$CHATVAULT_HOME` 指定：
+
+```
+~/ChatVault/
+  vault.sqlite                  # 唯一的真相
+  sources/wechat/<账号>/        # 快照、解密副本、state.json、keys.json（0600）
+  export/md/<文件夹>/<聊天>/2026-10.md
+  export/jsonl/...              # 每个导出目标还有 chats.json 索引
+```
+
+时间按本机时区写入导出文件。
+
+## 安全
+
+密钥和解密副本只在本机，`keys.json` 与 `state.json` 权限 0600；程序不会打印密钥。不要把 vault 目录放进同步盘或仓库。

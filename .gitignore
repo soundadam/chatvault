@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.tools/
+bin/
+dist/
+coverage.out
+*.test
+
