@@ -14,7 +14,7 @@ registry:
   homebrew: soundadam/tap/chatvault
   docs: https://github.com/soundadam/chatvault#readme
 release:
-  version: "0.1.0"
+  version: "0.2.0"
   license: Apache-2.0
 modules:
   - type: promo
@@ -29,7 +29,7 @@ modules:
   - type: snapshot
     title: 为什么做 chatvault
     body: 微信自己的备份是整机迁移，导不出能读的文件；常见的导出工具一次导完一大份，下个月再导就得从头来。{title} 反过来：库只增不减，导出跟着库走。第一次同步 48 万条消息约 25 秒，之后每次同步通常 1 秒左右，只重写有新消息的那几个月份文件。
-    note: 第一次同步前要先导入数据库的 key：`chatvault keys import keys.json`。{title} 不负责取 key，README 写了用哪个工具取，`chatvault check` 会告诉你还缺什么。只支持 Mac 版微信 4.x。解密后的副本留在本机的 vault 目录里，别把它放进网盘或仓库。
+    note: 第一次同步前要先导入数据库的 key：`chatvault keys import keys.json`，`chatvault check` 会告诉你还缺什么。只支持 Mac 版微信 4.x。解密后的副本留在本机的 vault 目录里，别把它放进网盘或仓库。
     metrics:
       - value: "~1 秒"
         label: 没有新消息时的一次同步
