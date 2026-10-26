@@ -24,7 +24,7 @@ import (
 // EnvHome overrides the default vault directory.
 const EnvHome = "CHATVAULT_HOME"
 
-// DefaultDir is $CHATVAULT_HOME, else ~/ChatVault.
+// DefaultDir is $CHATVAULT_HOME, else ~/Documents/ChatVault.
 func DefaultDir() (string, error) {
 	if d := os.Getenv(EnvHome); d != "" {
 		return d, nil
@@ -33,7 +33,7 @@ func DefaultDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "ChatVault"), nil
+	return filepath.Join(home, "Documents", "ChatVault"), nil
 }
 
 // Vault is an open vault directory.
@@ -48,6 +48,10 @@ func SchemaVersion() int { return len(migrations) }
 // Open opens (creating if needed) the vault at dir and brings its schema up
 // to date. A vault written by a newer chatvault is refused, not guessed at.
 func Open(dir string) (*Vault, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}

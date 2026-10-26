@@ -1,0 +1,111 @@
+# Pushing a v* tag builds every platform with scripts/package.sh and publishes
+# the GitHub Release with the archives attached. A tag containing "-" is a
+# prerelease: it is published as a GitHub prerelease and the tap is left alone.
+# Artifact names, the Cask and the update contract follow
+# https://github.com/soundadam/appkit.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - run: scripts/package.sh "${GITHUB_REF_NAME#v}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  # The release is immutable once published, so the archives go up with its
+  # creation: gh uploads them to a draft and publishes it afterwards.
+  # The archives are built on Linux (GNU tar makes them reproducible); this
+  # runs the Apple silicon one on a Mac before anything is published.
+  smoke:
+    needs: package
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: The binary reports the tag's version
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          tar -xzf "dist/chatvault-$version-macos-aarch64.tar.gz" -C "$RUNNER_TEMP"
+          bin="$RUNNER_TEMP/chatvault-$version-macos-aarch64/chatvault"
+          test "$("$bin" version)" = "chatvault $version"
+          "$bin" --help >/dev/null
+
+  release:
+    needs: smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=()
+          case $GITHUB_REF_NAME in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --generate-notes "${prerelease[@]}"
+
+  # Fills packaging/homebrew/chatvault.rb with the version and the SHA-256 of each
+  # archive and pushes it to the main branch of soundadam/homebrew-tap.
+  # HOMEBREW_TAP_GITHUB_TOKEN: fine-grained token with Contents read and write
+  # on soundadam/homebrew-tap only; the workflow's own token cannot push there.
+  homebrew:
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Render the Cask
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          sha() { sha256sum "dist/chatvault-$version-$1.tar.gz" | cut -d' ' -f1; }
+          sed -e "s/@VERSION@/$version/" \
+            -e "s/@MACOS_AARCH64_SHA256@/$(sha macos-aarch64)/" \
+            -e "s/@MACOS_X86_64_SHA256@/$(sha macos-x86_64)/" \
+            packaging/homebrew/chatvault.rb >chatvault.rb
+          ! grep -n '@[A-Z0-9_]*@' chatvault.rb
+
+      - name: Push to soundadam/homebrew-tap
+        env:
+          TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          test -n "$TOKEN" || { echo "::error::HOMEBREW_TAP_GITHUB_TOKEN is not set"; exit 1; }
+          git clone --depth 1 "https://x-access-token:$TOKEN@github.com/soundadam/homebrew-tap.git" tap
+          cp chatvault.rb tap/Casks/chatvault.rb
+          cd tap
+          git add Casks/chatvault.rb
+          git diff --cached --quiet && exit 0
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "chatvault ${GITHUB_REF_NAME#v}"
+          git push origin HEAD:main

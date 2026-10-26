@@ -59,13 +59,17 @@ func Targets(ctx context.Context, v *vault.Vault) ([]Target, error) {
 		if err := json.Unmarshal([]byte(cfg), &t.Config); err != nil {
 			return nil, fmt.Errorf("export %s: %w", t.Name, err)
 		}
+		if !filepath.IsAbs(t.Dir) {
+			t.Dir = filepath.Join(v.Dir, t.Dir)
+		}
 		out = append(out, t)
 	}
 	return out, rows.Err()
 }
 
 // Save creates or changes a target. A change of directory or config resets
-// it, so the next export rebuilds it whole.
+// it, so the next export rebuilds it whole. A directory inside the vault is
+// stored relative to it, so the vault can be moved.
 func Save(ctx context.Context, v *vault.Vault, name, dir string, cfg Config) error {
 	if !slices.Contains(Formats, cfg.Format) {
 		return fmt.Errorf("unknown format %q (have %s)", cfg.Format, strings.Join(Formats, ", "))
@@ -79,6 +83,9 @@ func Save(ctx context.Context, v *vault.Vault, name, dir string, cfg Config) err
 	dir, err := filepath.Abs(dir)
 	if err != nil {
 		return err
+	}
+	if rel, err := filepath.Rel(v.Dir, dir); err == nil && filepath.IsLocal(rel) {
+		dir = rel
 	}
 	slices.Sort(cfg.Kinds)
 	b, _ := json.Marshal(cfg)

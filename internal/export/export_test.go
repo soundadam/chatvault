@@ -140,3 +140,31 @@ func TestChatPathsUnique(t *testing.T) {
 		t.Fatalf("clean = %q", got)
 	}
 }
+
+func TestVaultMoves(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	v, err := vault.Open(filepath.Join(root, "a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(ctx, v, "md", "", Config{Format: "md"}); err != nil {
+		t.Fatal(err)
+	}
+	v.Close()
+	if err := os.Rename(filepath.Join(root, "a"), filepath.Join(root, "b")); err != nil {
+		t.Fatal(err)
+	}
+	v, err = vault.Open(filepath.Join(root, "b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer v.Close()
+	ts, err := Targets(ctx, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(v.Dir, "export", "md"); ts[0].Dir != want {
+		t.Fatalf("dir = %q, want %q", ts[0].Dir, want)
+	}
+}

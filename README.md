@@ -10,17 +10,34 @@
 
 ## 安装
 
+需要 macOS 12 以上和 Mac 版微信 4。
+
 ```bash
-make build        # 生成 bin/chatvault
+brew trust --tap soundadam/tap
+brew install --cask soundadam/tap/chatvault
 ```
 
-之后 `chatvault update` 会通过 appkit 从 GitHub Release 自更新。
+之后用 `chatvault update`（或 `brew upgrade`）更新。从源码构建：`make build`，生成 `bin/chatvault`。
+
+## 取 key
+
+微信的数据库用 SQLCipher 加密，chatvault 需要它们的 key，但不负责从微信里取。可以用
+[wechat-key-macos](https://github.com/3351666087/wechat-key-macos)：它用 Frida hook CommonCrypto，
+要先按它的 README 让微信可调试。它输出的 `keys.json` 直接交给 chatvault：
+
+```bash
+chatvault keys import keys.json
+chatvault check          # 逐个数据库检查 key 能否打开
+```
+
+也可以手写 `{"keys": ["<64 位 hex>", ...]}`。key 跟着账号数据走，不跟微信版本走：
+重新登录后、或 `check` 报某个新分库打不开时，再取一次。
 
 ## 用法
 
 ```bash
-# 一次性：导入数据库密钥（wechat-key-macos 的输出，或 {"keys": ["<hex>", ...]}）
-chatvault keys import ~/WeChatArchive/keys.json
+# 一次性：导入数据库 key（见上一节）
+chatvault keys import keys.json
 
 # 复制、解密、合并、解析、导出
 chatvault sync
@@ -42,10 +59,10 @@ chatvault export add groups --format md --kind group --dir ~/Documents/群聊
 chatvault export                         # 只重写有变化的文件
 ```
 
-库默认在 `~/ChatVault`，可用 `--vault` 或 `$CHATVAULT_HOME` 指定：
+库默认在 `~/Documents/ChatVault`，可用 `--vault` 或 `$CHATVAULT_HOME` 指定：
 
 ```
-~/ChatVault/
+~/Documents/ChatVault/
   vault.sqlite                  # 唯一的真相
   sources/wechat/<账号>/        # 快照、解密副本、state.json、keys.json（0600）
   export/md/<文件夹>/<聊天>/2026-10.md

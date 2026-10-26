@@ -12,4 +12,4 @@ one append-only SQLite vault and keeps Markdown/JSONL exports current.
   migration at the end. Changing how messages are read is a `parse.Version`
   bump, which rebuilds `parsed` and the exports. See `docs/data-model.md`.
 - Never print database keys or the contents of `keys.json` / `state.json`.
-- Test against a scratch vault (`--vault <dir>`), not `~/ChatVault`.
+- Test against a scratch vault (`--vault <dir>`), not `~/Documents/ChatVault`.

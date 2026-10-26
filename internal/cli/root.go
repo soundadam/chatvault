@@ -43,10 +43,17 @@ func (app *App) Execute(ctx context.Context, args []string) int {
 	root.SetIn(app.In)
 	root.SetOut(app.Out)
 	root.SetErr(app.Err)
-	if err := fang.Execute(ctx, root, fang.WithoutVersion()); err != nil {
+	if err := fang.Execute(ctx, root, fang.WithoutVersion(), fang.WithErrorHandler(errorHandler)); err != nil {
 		return 1
 	}
 	return 0
+}
+
+// errorHandler is fang's, without title-casing the message: errors carry
+// paths and chat names.
+func errorHandler(w io.Writer, s fang.Styles, err error) {
+	s.ErrorText = s.ErrorText.UnsetTransform()
+	fang.DefaultErrorHandler(w, s, err)
 }
 
 func (app *App) newRootCommand() *cobra.Command {
@@ -60,10 +67,10 @@ JSON Lines up to date, one file per chat and month, rewriting only what
 changed since the last sync.
 
 Run it without arguments on a terminal to browse and sync interactively;
-piped, it prints the vault's status. The vault is ~/ChatVault unless
+piped, it prints the vault's status. The vault is ~/Documents/ChatVault unless
 --vault or $CHATVAULT_HOME says otherwise.`,
 		Example: `  # once: hand over the database keys (see README for how to get them)
-  chatvault keys import ~/WeChatArchive/keys.json
+  chatvault keys import keys.json
 
   # copy, decrypt, merge, parse and export what is new
   chatvault sync
@@ -89,7 +96,7 @@ piped, it prints the vault's status. The vault is ~/ChatVault unless
 			return app.status(cmd.Context())
 		},
 	}
-	root.PersistentFlags().StringVar(&app.VaultDir, "vault", "", "vault directory (default $CHATVAULT_HOME or ~/ChatVault)")
+	root.PersistentFlags().StringVar(&app.VaultDir, "vault", "", "vault directory (default $CHATVAULT_HOME or ~/Documents/ChatVault)")
 	root.AddGroup(
 		&cobra.Group{ID: groupSync, Title: "sync"},
 		&cobra.Group{ID: groupBrowse, Title: "browse and organise"},
