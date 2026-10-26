@@ -19,6 +19,21 @@ brew install --cask soundadam/tap/chatvault
 
 之后用 `chatvault update`（或 `brew upgrade`）更新。从源码构建：`make build`，生成 `bin/chatvault`。
 
+## 第一次使用
+
+只支持 **Mac 版微信 4.x**（数据在 `~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files`）。
+微信 3.x 的数据 chatvault 不读，`check` 会直接说明。
+
+**导入 key 是第一次同步之前必须做的一步**，三步走：
+
+```bash
+chatvault check                 # 看缺什么：微信账号、key、vault，每个 FAIL 下面都写了怎么办
+chatvault keys import keys.json # 导入 key（取法见下一节）；会先试一遍能打开几个数据库
+chatvault sync                  # 复制、解密、合并、导出
+```
+
+不知道下一步做什么时，`chatvault check`、`chatvault status` 和交互界面的空白页都会给出下一条命令。
+
 ## 取 key
 
 微信的数据库用 SQLCipher 加密，chatvault 需要它们的 key，但不负责从微信里取。可以用
@@ -30,6 +45,8 @@ chatvault keys import keys.json
 chatvault check          # 逐个数据库检查 key 能否打开
 ```
 
+不给路径时，`keys import` 依次在当前目录、`~/Downloads`、`~/Desktop`、`~/Documents`、`~` 找 `keys.json`。
+导入前会校验格式，并只读地试一遍账号的数据库：一个都打不开就不导入（多半是别的账号的 key，或已过期）。
 也可以手写 `{"keys": ["<64 位 hex>", ...]}`。key 跟着账号数据走，不跟微信版本走：
 重新登录后、或 `check` 报某个新分库打不开时，再取一次。
 

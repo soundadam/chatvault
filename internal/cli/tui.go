@@ -72,6 +72,7 @@ type uiModel struct {
 	all      bool // include hidden chats
 	filter   textinput.Model
 	stats    vault.Stats
+	setup    setup // with no chats, what to do first
 	loadErr  error
 	selectID string
 
@@ -96,6 +97,7 @@ type (
 	loadedMsg struct {
 		chats []vault.Chat
 		stats vault.Stats
+		setup setup
 		err   error
 	}
 	monthMsg struct {
@@ -125,7 +127,11 @@ func (m *uiModel) load() tea.Cmd {
 			return loadedMsg{err: err}
 		}
 		st, err := v.Stats(ctx)
-		return loadedMsg{chats: chats, stats: st, err: err}
+		var su setup
+		if len(chats) == 0 {
+			su = diagnose(ctx, v)
+		}
+		return loadedMsg{chats: chats, stats: st, setup: su, err: err}
 	}
 }
 
@@ -239,7 +245,7 @@ func (m *uiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loadedMsg:
 		m.loadErr = msg.err
 		if msg.err == nil {
-			m.chats, m.stats = msg.chats, msg.stats
+			m.chats, m.stats, m.setup = msg.chats, msg.stats, msg.setup
 			m.applyFilter()
 		}
 		return m, cmd
@@ -500,9 +506,11 @@ func (m *uiModel) viewList(b *strings.Builder) {
 	case m.loadErr != nil:
 		b.WriteString(styleErr.Render(m.loadErr.Error()) + "\n")
 		rows--
-	case len(m.chats) == 0:
-		b.WriteString("The vault is empty. Press s to sync (after `chatvault keys import`).\n")
-		rows--
+	case len(m.chats) == 0 && !m.syncing:
+		for _, l := range m.emptyLines(w) {
+			b.WriteString(l + "\n")
+			rows--
+		}
 	}
 	off := 0
 	if m.cursor >= rows {
@@ -539,6 +547,15 @@ func (m *uiModel) viewList(b *strings.Builder) {
 	for _, l := range m.footer(ansi.Truncate(help, w, "…")) {
 		b.WriteString(l + "\n")
 	}
+}
+
+// emptyLines say what to do when the vault has no chats yet, wrapped to w.
+func (m *uiModel) emptyLines(w int) []string {
+	text := "The vault is empty. " + m.setup.uiHint()
+	if m.stats.Runs > 0 {
+		text = "No chats yet: the last sync found no messages. Press s to sync again, or run `chatvault check`."
+	}
+	return strings.Split(ansi.Wrap(text, max(20, w-2), ""), "\n")
 }
 
 func (m *uiModel) viewChat(b *strings.Builder) {

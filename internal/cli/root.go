@@ -69,7 +69,10 @@ changed since the last sync.
 Run it without arguments on a terminal to browse and sync interactively;
 piped, it prints the vault's status. The vault is ~/Documents/ChatVault unless
 --vault or $CHATVAULT_HOME says otherwise.`,
-		Example: `  # once: hand over the database keys (see README for how to get them)
+		Example: `  # first time: see what is missing and what to do about it
+  chatvault check
+
+  # once: hand over the database keys (see README for how to get them)
   chatvault keys import keys.json
 
   # copy, decrypt, merge, parse and export what is new
@@ -128,7 +131,11 @@ piped, it prints the vault's status. The vault is ~/Documents/ChatVault unless
 // open opens the vault; with create false, a missing vault is an error.
 func (app *App) open(create bool) (*vault.Vault, error) {
 	if !create && !vault.Exists(app.VaultDir) {
-		return nil, fmt.Errorf("%s: %w", app.VaultDir, vault.ErrNoVault)
+		err := fmt.Errorf("%s: %w", app.VaultDir, vault.ErrNoVault)
+		if h := app.diagnose(context.Background()).hint(); h != "" {
+			err = fmt.Errorf("%w\nnext: %s", err, h)
+		}
+		return nil, err
 	}
 	return vault.Open(app.VaultDir)
 }

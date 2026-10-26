@@ -202,4 +202,4 @@ func nullStr(s string) any {
 }
 
 // ErrNoVault means the directory has no vault yet.
-var ErrNoVault = errors.New("no vault here yet; run `chatvault sync` first")
+var ErrNoVault = errors.New("no vault here yet")

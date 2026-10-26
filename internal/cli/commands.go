@@ -80,7 +80,7 @@ func (p *progress) clear() {
 }
 
 func printReport(w io.Writer, r *pipeline.Report) {
-	if r == nil || r.Account == "" {
+	if r == nil || len(r.Durations) == 0 {
 		return
 	}
 	d := func(s string) string { return r.Durations[s].Round(time.Millisecond).String() }
@@ -88,6 +88,9 @@ func printReport(w io.Writer, r *pipeline.Report) {
 	fmt.Fprintf(w, "decrypt   %d changed, %d failed (%s)\n", len(r.Changed), len(r.Failed), d(pipeline.StageDecrypt))
 	for _, f := range r.Failed {
 		fmt.Fprintf(w, "          no key for %s\n", f)
+	}
+	if len(r.Failed) > 0 {
+		fmt.Fprintln(w, "          the rest synced; for these, import a fresh keys.json (`chatvault keys import`)")
 	}
 	fmt.Fprintf(w, "merge     %d new, %d revised (%s)\n", r.Added, r.Revised, d(pipeline.StageMerge))
 	fmt.Fprintf(w, "parse     %d (%s)\n", r.Parsed, d(pipeline.StageParse))
@@ -135,6 +138,11 @@ func (app *App) status(ctx context.Context) error {
 		last = time.Unix(s.LastRun, 0).Format("2006-01-02 15:04")
 	}
 	fmt.Fprintf(app.Out, "synced    %s (%d runs)\n", last, s.Runs)
+	if s.Runs == 0 {
+		if h := app.diagnose(ctx).hint(); h != "" {
+			fmt.Fprintf(app.Out, "next      %s\n", h)
+		}
+	}
 	ts, err := export.Targets(ctx, v)
 	if err != nil {
 		return err
@@ -516,31 +524,64 @@ func (app *App) newKeysCommand() *cobra.Command {
 	}
 	var account string
 	imp := &cobra.Command{
-		Use:   "import <keys.json>",
+		Use:   "import [keys.json]",
 		Short: "Store an account's database keys in the vault",
-		Long: `WeChat 4 encrypts each database with a key held in its memory. Tools such
-as wechat-key-macos read them out into a keys.json, which this command
-copies into the vault (mode 0600). Keys stay valid until WeChat is
-reinstalled or the account logs in afresh; import new ones then.
+		Long: `WeChat 4 encrypts each database with a key. chatvault does not get the keys
+itself: you prepare a keys.json (the README says how), and this command
+checks it, tries it on the account's databases (reading only), and copies
+it into the vault (mode 0600). Keys stay valid until WeChat is reinstalled
+or the account logs in afresh; import new ones then.
 
-Accepted forms: {"message/message_0.db": {"enc_key": "<hex>"}, ...} or
-{"keys": ["<hex>", ...]}.`,
-		Args: cobra.ExactArgs(1),
+Without a path it looks for keys.json in the current directory, then in
+~/Downloads, ~/Desktop, ~/Documents and ~.
+
+Accepted forms: ` + wechat.KeyForms + `.`,
+		Example: `  chatvault keys import ~/Downloads/keys.json
+  chatvault keys import --account wxid_abc_1a2b keys.json`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			from := ""
+			if len(args) > 0 {
+				from = args[0]
+			} else {
+				p, err := findKeysFile(keysCandidates())
+				if err != nil {
+					return err
+				}
+				from = p
+				fmt.Fprintf(app.Out, "using %s\n", from)
+			}
+			keys, err := wechat.LoadKeys(from)
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("%s: no such file", from)
+			}
+			if err != nil {
+				return err
+			}
 			acct, err := wechat.FindAccount(wechat.Root(), account)
 			if err != nil {
 				return err
+			}
+			opened, missing, err := wechat.KeyCoverage(acct, keys)
+			if err != nil {
+				return err
+			}
+			if len(opened) == 0 {
+				return fmt.Errorf("none of the %d keys in %s opens a database of %s; they may belong to another account (--account) or be out of date; nothing imported", len(keys), from, acct.ID())
 			}
 			v, err := app.open(true)
 			if err != nil {
 				return err
 			}
 			defer v.Close()
-			n, err := pipeline.ImportKeys(v, acct, args[0])
-			if err != nil {
+			if _, err := pipeline.ImportKeys(v, acct, from); err != nil {
 				return err
 			}
-			fmt.Fprintf(app.Out, "%d keys stored for %s\n", n, acct.ID())
+			fmt.Fprintf(app.Out, "%d keys stored for %s; they open %d of %d databases\n", len(keys), acct.ID(), len(opened), len(opened)+len(missing))
+			for _, m := range missing {
+				fmt.Fprintf(app.Out, "  no key for %s (sync skips it)\n", m)
+			}
+			fmt.Fprintln(app.Out, "next: chatvault sync")
 			return nil
 		},
 	}
@@ -552,42 +593,78 @@ Accepted forms: {"message/message_0.db": {"enc_key": "<hex>"}, ...} or
 func (app *App) newCheckCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "check",
-		Short:   "Check that WeChat, the keys and the vault are in order",
+		Short:   "Check that WeChat, the keys and the vault are in order, and say what to fix",
 		GroupID: groupSetup,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ok := true
-			say := func(good bool, format string, a ...any) {
+			// say prints a check; a failed one is followed by what to do.
+			say := func(good bool, fix, format string, a ...any) {
 				mark := "ok  "
 				if !good {
 					mark, ok = "FAIL", false
 				}
 				fmt.Fprintf(app.Out, "%s  %s\n", mark, fmt.Sprintf(format, a...))
+				if !good && fix != "" {
+					fmt.Fprintf(app.Out, "      → %s\n", fix)
+				}
 			}
 			accts, err := wechat.Accounts(wechat.Root())
-			say(err == nil && len(accts) > 0, "WeChat accounts under %s: %d", wechat.Root(), len(accts))
-			for _, a := range accts {
-				dbs, _ := wechat.ListDBs(a.DBDir())
-				say(len(dbs) > 0, "account %s: %d databases", a.ID(), len(dbs))
+			if err != nil {
+				say(false, "", "%v", err)
+			} else {
+				say(true, "", "WeChat 4.x accounts under %s: %d", wechat.Root(), len(accts))
 			}
-			say(true, "vault %s (schema %d)", app.VaultDir, vault.SchemaVersion())
-			if vault.Exists(app.VaultDir) {
+			for _, a := range accts {
+				err := a.CheckLayout()
+				say(err == nil, "log in to this account in WeChat 4.x and let it load your chats", "account %s: %v", a.ID(), errOrOK(err))
+			}
+			if !vault.Exists(app.VaultDir) {
+				fmt.Fprintf(app.Out, "      vault %s does not exist yet; `keys import` or `sync` creates it\n", app.VaultDir)
+			} else {
 				v, err := vault.Open(app.VaultDir)
-				say(err == nil, "vault opens: %v", errOrOK(err))
+				say(err == nil, "", "vault %s (schema %d): %v", app.VaultDir, vault.SchemaVersion(), errOrOK(err))
 				if err == nil {
 					for _, a := range accts {
-						keys, err := wechat.LoadKeys(pipeline.KeysPath(v, a))
-						say(err == nil, "keys for %s: %d (%v)", a.ID(), len(keys), errOrOK(err))
+						app.checkKeys(say, v, a)
 					}
 					v.Close()
 				}
 			}
 			if !ok {
-				return errors.New("some checks failed")
+				return errors.New("some checks failed; fix the first → above and run `chatvault check` again")
+			}
+			if h := app.diagnose(cmd.Context()).hint(); h != "" {
+				fmt.Fprintf(app.Out, "next: %s\n", h)
 			}
 			return nil
 		},
 	}
+}
+
+// checkKeys reports whether an account's keys are imported and which of its
+// databases they open.
+func (app *App) checkKeys(say func(bool, string, string, ...any), v *vault.Vault, a wechat.Account) {
+	keys, err := wechat.LoadKeys(pipeline.KeysPath(v, a))
+	if errors.Is(err, os.ErrNotExist) {
+		say(false, "prepare a keys.json (README: 取 key) and run `chatvault keys import keys.json`", "keys for %s: not imported", a.ID())
+		return
+	}
+	if err != nil {
+		say(false, "import a fresh keys.json with `chatvault keys import`", "keys for %s: %v", a.ID(), err)
+		return
+	}
+	opened, missing, err := wechat.KeyCoverage(a, keys)
+	if err != nil {
+		say(false, "", "keys for %s: %v", a.ID(), err)
+		return
+	}
+	none := ""
+	if len(missing) > 0 {
+		none = "; no key for " + strings.Join(missing, ", ")
+	}
+	say(len(missing) == 0, "sync skips these; if they matter, import a fresh keys.json with `chatvault keys import`",
+		"keys for %s: %d keys open %d of %d databases%s", a.ID(), len(keys), len(opened), len(opened)+len(missing), none)
 }
 
 func errOrOK(err error) string {
