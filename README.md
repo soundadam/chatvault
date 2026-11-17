@@ -96,3 +96,7 @@ chatvault export                         # 只重写有变化的文件
 ## 安全
 
 密钥和解密副本只在本机，`keys.json` 与 `state.json` 权限 0600；程序不会打印密钥。不要把 vault 目录放进同步盘或仓库。
+
+## 许可
+
+Apache-2.0，见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。

@@ -5,7 +5,7 @@
 #
 #   chatvault-<ver>-macos-<arch>.tar.gz
 #
-# each holding chatvault-<ver>-macos-<arch>/chatvault with README.md, LICENSE and
+# each holding chatvault-<ver>-macos-<arch>/chatvault with README.md, LICENSE, NOTICE and
 # THIRD_PARTY_LICENSES. Only macOS is built: chatvault reads the macOS WeChat
 # client's data. The version is injected as main.version; the release workflow
 # passes the tag without its leading "v". It needs GNU tar and touch, so the
@@ -18,7 +18,7 @@ if [ "$#" -ne 1 ] || [ -z "$1" ]; then
     exit 1
 fi
 version=${1#v}
-extras=(README.md LICENSE)
+extras=(README.md LICENSE NOTICE)
 # Archive timestamps come from the commit, so the same commit and version
 # package to the same bytes.
 mtime=$(git log -1 --format=%cI)
