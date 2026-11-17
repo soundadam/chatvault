@@ -33,15 +33,15 @@ modules:
     metrics:
       - value: "~1 s"
         label: A sync with nothing new
-      - value: "0"
-        label: Originals lost to a recall; the recall is kept beside them
+      - value: Recalls
+        label: A synced message keeps its original text; the recall is stored beside it
       - value: "4"
         label: "Export formats: Markdown, text, JSON Lines and JSON"
       - value: "{version}"
         label: "Current release · {license}"
 
   - type: section
-    title: Recalls, renames and cleanups lose nothing
+    title: Recalls, renames and cleanups keep history
     index: 1/3
     lede: A message keeps the form it first entered the vault in. If WeChat later shows it recalled or changed, the new form is stored as a revision, and the export still shows the original, marked as recalled. Renamed contacts and groups keep their history, and old databases WeChat cleans up stay in the vault.
 

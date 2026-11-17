@@ -33,15 +33,15 @@ modules:
     metrics:
       - value: "~1 秒"
         label: 没有新消息时的一次同步
-      - value: "0 条"
-        label: 撤回后丢掉的原文：原消息保留，撤回另记一条
+      - value: 撤回
+        label: 同步过的消息撤回后原文保留，撤回另记一条
       - value: "4 种"
         label: 导出格式：Markdown、纯文本、JSON Lines 和 JSON
       - value: "{version}"
         label: "当前版本 · {license}"
 
   - type: section
-    title: 撤回、改名、清理，都不会少
+    title: 撤回、改名和清理都留历史
     index: 1/3
     lede: 一条消息第一次进库的样子永远保留。之后微信里它被撤回、被改动，新样子另存为一个版本，导出里原文还在，旁边标「已撤回」。联系人和群改名也会留下历史。微信清理掉的旧分库，库里照样有。
 
